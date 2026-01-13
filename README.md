@@ -5,6 +5,8 @@
 
 An MCP (Model Context Protocol) server that enables LLMs and AI agents to interact with **pwndbg** for exploit development and reverse engineering.
 
+**Disclosure**: This was built 100% by Claude-Code. And was tested to some extent manually by me. Feel free to open an issue if you found a bug (which are likely to exist)
+
 ## What is this?
 
 This server allows AI assistants (like Claude, GPT, etc.) to directly control GDB with the pwndbg extension. The AI can:
@@ -44,31 +46,6 @@ This server allows AI assistants (like Claude, GPT, etc.) to directly control GD
 - **GDB** with pwndbg installed
 - **pwndbg** - [Installation instructions](https://pwndbg.re/stable/setup)
 
-### Optional but Recommended: libc Debug Symbols
-
-For **heap debugging commands** (`get_heap`, `get_bins`, `get_arena`, etc.) to work properly, you need one of:
-
-1. **libc debug symbols installed** (recommended):
-   ```bash
-   # Debian/Ubuntu/Kali
-   sudo apt install libc6-dbg
-
-   # Arch Linux
-   sudo pacman -S glibc-debug
-
-   # Fedora/RHEL
-   sudo dnf debuginfo-install glibc
-   ```
-
-2. **OR** pwndbg must have built-in support for your glibc version
-
-**Why?** New glibc versions (e.g., 2.42+) are released faster than pwndbg can add support for them. Without debug symbols, pwndbg cannot resolve heap structures like `mp_` (malloc params) and heap commands will fail with:
-```
-heap: Fail to resolve the symbol: `mp_`
-```
-
-**Note:** The MCP server automatically detects and configures your glibc version, but this alone isn't sufficient without debug symbols for newer glibc versions.
-
 ## Installation
 
 ### Standard Installation (Recommended)
@@ -96,23 +73,6 @@ pipx install .
 pip install --user .
 ```
 
-### Development Installation
-
-If you're modifying the MCP server code:
-
-```bash
-# Clone and setup development environment
-git clone https://github.com/bengabay1994/pwndbg-mcp.git
-cd pwndbg-mcp
-
-# Install in editable mode (changes reflect immediately)
-uv tool install --editable .
-
-# OR install dependencies in local venv for testing
-uv sync --dev
-uv run pwndbg-mcp
-```
-
 ### Verify Installation
 
 ```bash
@@ -131,33 +91,25 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## Getting Started
 
-### 1. Start the MCP Server
+### Setup claude-code mcp server
 
-#### Using the CLI
-
-```bash
-pwndbg-mcp
-```
-
-#### Using fastmcp
+#### Using the CLI (Claude Code)
 
 ```bash
-fastmcp run src/pwndbg_mcp/server.py:mcp
+claude mcp add pwndbg-mcp -- pwndbg-mcp
 ```
 
-#### With HTTP transport (for remote access)
-
+#### Using the CLI (Gemini-CLI)
 ```bash
-fastmcp run src/pwndbg_mcp/server.py:mcp --transport http --port 8000
+gemini mcp add pwndbg-mcp -- pwndbg-mcp
 ```
 
-### 2. Connect from an MCP Client
+### Manual setup
+
 
 #### Claude Desktop Configuration
 
-Add to your Claude Desktop config:
-- **Linux/macOS**: `~/.config/claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+Add to your Claude/Gemini/Other mcpServers list:
 
 ```json
 {
@@ -167,67 +119,6 @@ Add to your Claude Desktop config:
     }
   }
 }
-```
-
-**For development (using `uv run`):**
-
-```json
-{
-  "mcpServers": {
-    "pwndbg": {
-      "command": "uv",
-      "args": ["--directory", "/absolute/path/to/pwndbg-mcp", "run", "pwndbg-mcp"]
-    }
-  }
-}
-```
-
-#### Claude Code (CLI) Configuration
-
-Add to your Claude Code config (`~/.clauderc`):
-
-```json
-{
-  "mcpServers": {
-    "pwndbg": {
-      "command": "pwndbg-mcp"
-    }
-  }
-}
-```
-
-#### Using the Python Client
-
-```python
-import asyncio
-from fastmcp import Client
-
-async def main():
-    client = Client("http://localhost:8000/mcp")
-    
-    async with client:
-        # Start a debugging session
-        result = await client.call_tool("start_session", {
-            "binary_path": "/path/to/binary"
-        })
-        print(result)
-        
-        # Get security info
-        checksec = await client.call_tool("checksec", {})
-        print(checksec)
-        
-        # Set a breakpoint and run
-        await client.call_tool("set_breakpoint", {"location": "main"})
-        await client.call_tool("run_binary", {})
-        
-        # Get context
-        context = await client.call_tool("get_context", {})
-        print(context)
-        
-        # Close session
-        await client.call_tool("close_session", {})
-
-asyncio.run(main())
 ```
 
 ## Available Tools
@@ -334,64 +225,6 @@ asyncio.run(main())
 | `rop_gadgets` | Search for ROP gadgets |
 | `execute_command` | Run any GDB/pwndbg command |
 
-## Example: Analyzing a Buffer Overflow
-
-```python
-async with client:
-    # Load the vulnerable binary
-    await client.call_tool("start_session", {"binary_path": "./vuln"})
-    
-    # Check security features
-    security = await client.call_tool("checksec", {})
-    print(f"NX: {security['nx']}, Canary: {security['canary']}, PIE: {security['pie']}")
-    
-    # Set breakpoint at vulnerable function
-    await client.call_tool("set_breakpoint", {"location": "vulnerable_function"})
-    
-    # Run with cyclic pattern
-    pattern = await client.call_tool("cyclic_pattern", {"length": 200})
-    await client.call_tool("run_binary", {"args": pattern['pattern']})
-    
-    # After crash, check the registers
-    regs = await client.call_tool("get_registers", {})
-    print(f"RIP: {regs['registers']['RIP']}")
-    
-    # Find offset in pattern
-    offset = await client.call_tool("cyclic_find", {"value": regs['registers']['RIP']['value']})
-    print(f"Offset to RIP: {offset}")
-    
-    # Search for ROP gadgets
-    gadgets = await client.call_tool("rop_gadgets", {"filter_str": "pop rdi"})
-    print(gadgets)
-```
-
-## Example: Heap Exploitation Analysis
-
-```python
-async with client:
-    await client.call_tool("start_session", {"binary_path": "./heap_vuln"})
-    await client.call_tool("set_breakpoint", {"location": "main"})
-    await client.call_tool("run_binary", {})
-    
-    # Step through allocations
-    await client.call_tool("next_call", {})  # malloc
-    await client.call_tool("finish_function", {})
-    
-    # Analyze heap state
-    heap = await client.call_tool("get_heap", {})
-    print(f"Total chunks: {heap['total_chunks']}")
-    
-    bins = await client.call_tool("get_bins", {})
-    print(f"Tcache entries: {len(bins['tcachebins'])}")
-    
-    # Look for exploitation opportunities
-    for chunk in heap['chunks']:
-        if chunk['state'] == 'free':
-            fake = await client.call_tool("find_fake_fast", {
-                "address": chunk['address']
-            })
-            print(fake)
-```
 
 ## Architecture
 
@@ -451,7 +284,6 @@ sudo dnf debuginfo-install glibc
 ```bash
 ldd --version
 ```
-
 **Note:** The MCP server automatically detects and configures your glibc version, but debug symbols are still required for newer versions.
 
 ### pwndbg Not Loading
@@ -511,16 +343,6 @@ Failed to start GDB with pwndbg loaded
 
 4. **Restart Claude Code completely** for MCP server to reload.
 
-## Development
-
-### Setup
-
-```bash
-git clone https://github.com/yourusername/pwndbg-mcp.git
-cd pwndbg-mcp
-uv sync --dev
-```
-
 ### Testing
 
 The project includes comprehensive test coverage with both unit tests and integration tests.
@@ -578,7 +400,7 @@ uv run pytest tests/test_integration*.py -v -s
 - ✅ Heap analysis (get_heap, bins, fastbins, tcache, arena, inspect_chunk, find_fake_fast, try_free)
 - ✅ Binary analysis (checksec, GOT, PLT, PIE base, ELF sections, ASLR)
 
-**Not Yet Tested** (can be tested manually):
+**No Automated Tests** (can be tested manually):
 - Kernel debugging tools (kbase, kversion, kdmesg, ksyscalls, etc.)
 - Process attachment (attach_process, detach_process)
 - Utilities (assemble, cyclic patterns, patch_memory, ROP gadgets)
@@ -599,10 +421,6 @@ Unit Tests:        24 tests ✅
 Integration Tests:  5 tests ✅
 Success Rate:      100% (29/29)
 ```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
