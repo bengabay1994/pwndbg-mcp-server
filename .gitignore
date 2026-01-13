@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# gdb related files
+.gdb_history
+
+# binary test files
+tests/fixtures/binaries/heap_test
+tests/fixtures/binaries/simple
+
